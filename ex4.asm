@@ -1,0 +1,121 @@
+.386
+STACKSIZE  EQU  100
+
+STACK	   SEGMENT  USE16  STACK
+	   DB  STACKSIZE  DUP (0)
+STACK	   ENDS
+
+STACKBAK   SEGMENT  USE16
+	      DB  STACKSIZE  DUP (0)
+STACKBAK   ENDS
+
+DATA	   SEGMENT USE16
+DATA	   ENDS
+
+CODE   	   SEGMENT USE16
+       	   ASSUME  CS:CODE,  SS:STACK
+
+TIME	   DB     0		;每到0秒就切换堆栈
+SSEG	   DW    ?,  ?	;用于保存2个堆栈段的段地址
+OLD_INT	   DW    0,  0	;老的8号中断服务程序地址
+FLAG	   DB     0		;0=STACK, 1=STACKBAK
+
+NEW8H	PROC	FAR
+	PUSHF 
+	CALL	DWORD PTR CS:OLD_INT;
+	;;
+	PUSH	AX
+	MOV	AL, 0 		;0=秒的偏移地址
+	OUT	70H, AL
+	JMP	$+2		;保证端口操作的可靠性（因端口电路的响应速度较慢）
+	IN	AL, 71H		;取秒
+	CMP	AL, CS:TIME
+	JZ	L1
+L0:	POP	AX
+	IRET
+	;;
+L1:	PUSH	DS
+	PUSH	ES
+	PUSH	BX
+	;;
+	CMP	FLAG, 0
+	JNZ	L2
+	MOV	FLAG, 1
+	MOV	DS, SSEG+0
+	MOV	ES, SSEG+2
+	JMP	L3
+L2:	MOV	FLAG, 0
+	MOV	DS, SSEG+2
+	MOV	ES, SSEG+0
+L3:	MOV	BX, 0;循环，将stack堆栈复制到stackbar中
+L4:	MOV	AL, DS:[BX]
+	MOV	ES:[BX], AL
+	INC	BX
+	CMP	BX, STACKSIZE
+	JB	L4;小于时跳转到L4
+	MOV	AX, ES;交换堆栈段
+	MOV	SS, AX
+	;;
+	POP	BX
+	POP	ES
+	POP	DS
+	JMP	L0
+NEW8H	ENDP
+
+
+;;主程序开始
+BEGIN: 	MOV	AX, STACK
+	MOV	 CS:SSEG, AX
+	MOV	AX, STACKBAK
+	MOV	CS:SSEG+2, AX
+	;;
+	MOV	AX, 3508H;取中断服务表8号程序，偏移地址存储在BX,段地址存储在ES中
+    INT	21H
+    MOV	CS:OLD_INT, BX
+    MOV	CS:OLD_INT+2, ES
+	PUSH CS
+    POP	DS
+	MOV	DX, OFFSET NEW8H
+	MOV	AX, 2508H
+	INT	21H
+	;;
+	MOV	AH, -1
+NEXT:	MOV	AL, CS:FLAG
+	CMP	AL, AH
+	JZ	NEXT
+	MOV	AX, SS
+	CALL	DISPLAY_AX
+	MOV	AH, CS:FLAG
+	JMP	NEXT	
+	;;
+        	MOV	DX, CS:OLD_INT
+        	MOV	DS, CS:OLD_INT+2
+	MOV	AX, 2508H;将新的中断服务存储到中断服务表中
+	INT	21H
+	;;
+	MOV	AX, 4C00H
+        	INT	21H
+
+DISPLAY_AX  PROC;显示堆栈首地址
+	MOV	CX, 4
+	MOV	BX, AX
+D0:	ROL	BX, 4
+	MOV	DL, BL
+	AND	DL, 0FH
+	CMP	DL, 10
+	JB	D1
+	ADD	DL, 'A' - 10
+	JMP	D2
+D1:	ADD	DL, '0'
+D2:	MOV	AH, 2
+	INT	21H
+	LOOP	D0
+	MOV	DL, ' '
+	INT	21H	;显示2个空格
+	INT	21H
+	RET
+DISPLAY_AX  ENDP
+
+CODE      ENDS
+        	END   BEGIN
+
