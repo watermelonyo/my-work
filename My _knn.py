@@ -5,7 +5,7 @@ def main():
     #建立训练集、测试集
 
     #测试数据所在位置
-    samp=pd.read_csv("D:\python\samp.txt")
+    samp=pd.read_csv("D:\samp.txt")
 
     samp.head()
 
